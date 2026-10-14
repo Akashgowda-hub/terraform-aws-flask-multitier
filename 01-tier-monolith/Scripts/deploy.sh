@@ -4,7 +4,7 @@ set -e
 echo "Starting application deployment..."
 
 # 1. Setup Python Virtual Environment
-python3 -m venv /opt/flaskapp/venv
+python3.12 -m venv /opt/flaskapp/venv
 /opt/flaskapp/venv/bin/pip install --upgrade pip
 /opt/flaskapp/venv/bin/pip install -r /opt/flaskapp/01-tier-monolith/app/requirements.txt
 

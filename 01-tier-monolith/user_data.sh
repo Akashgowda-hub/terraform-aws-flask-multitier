@@ -2,8 +2,7 @@
 set -e
 
 apt-get update -y
-# Added build-essential, libpq-dev, and python3-dev
-apt-get install -y git python3 python3-venv python3-dev build-essential libpq-dev postgresql postgresql-contrib
+apt-get install -y git python3.12 python3.12-venv python3.12-dev build-essential libpq-dev postgresql postgresql-contrib
 
 # Start local database (Phase 1 Monolith)
 systemctl start postgresql
