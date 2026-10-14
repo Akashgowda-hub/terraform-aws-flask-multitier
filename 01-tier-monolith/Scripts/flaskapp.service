@@ -1,0 +1,16 @@
+[Unit]
+Description=Flask GUI Application (1-Tier)
+After=network.target postgresql.service
+
+[Service]
+User=root
+WorkingDirectory=/opt/flaskapp/app
+ExecStart=/opt/flaskapp/venv/bin/gunicorn --workers 2 --bind 0.0.0.0:5000 app:app
+Restart=always
+Environment="DB_HOST=localhost"
+Environment="DB_NAME=flaskdb"
+Environment="DB_USER=flaskuser"
+Environment="DB_PASS=flaskpass123"
+
+[Install]
+WantedBy=multi-user.target
