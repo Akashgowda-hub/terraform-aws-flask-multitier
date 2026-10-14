@@ -1,12 +1,14 @@
 [Unit]
-Description=Flask GUI Application (1-Tier)
+Description=Flask Task Manager (1-Tier Monolith)
 After=network.target postgresql.service
 
 [Service]
+Type=simple
 User=root
-WorkingDirectory=/opt/flaskapp/app
+WorkingDirectory=/opt/flaskapp/01-tier-monolith/app
 ExecStart=/opt/flaskapp/venv/bin/gunicorn --workers 2 --bind 0.0.0.0:5000 app:app
-Restart=always
+Restart=on-failure
+RestartSec=5
 Environment="DB_HOST=localhost"
 Environment="DB_NAME=flaskdb"
 Environment="DB_USER=flaskuser"

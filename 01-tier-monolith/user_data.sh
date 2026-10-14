@@ -1,21 +1,71 @@
 #!/bin/bash
-set -e
+set -Eeuo pipefail
 
+export DEBIAN_FRONTEND=noninteractive
+
+APP_REPO="https://github.com/Akashgowda-hub/terraform-aws-flask-multitier.git"
+APP_DIR="/opt/flaskapp"
+
+echo "Installing system packages..."
 apt-get update -y
-apt-get install -y git python3 python3-venv python3-pip postgresql postgresql-contrib
+apt-get install -y \
+    git \
+    python3 \
+    python3-venv \
+    python3-pip \
+    postgresql \
+    postgresql-contrib
 
+echo "Starting PostgreSQL..."
+systemctl enable --now postgresql
 
-# Start local database (Phase 1 Monolith)
-systemctl start postgresql
-systemctl enable postgresql
-sudo -u postgres psql -c "CREATE DATABASE flaskdb;" || true
-sudo -u postgres psql -c "CREATE USER flaskuser WITH PASSWORD 'flaskpass123';" || true
-sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE flaskdb TO flaskuser;" || true
-sudo -u postgres psql -d flaskdb -c "GRANT ALL ON SCHEMA public TO flaskuser;" || true
+# Wait for PostgreSQL to accept connections (maximum 60 seconds).
+for attempt in $(seq 1 60); do
+    if pg_isready -q; then
+        break
+    fi
+    if [ "$attempt" -eq 60 ]; then
+        echo "ERROR: PostgreSQL did not become ready."
+        exit 1
+    fi
+    sleep 1
+done
 
-# Clone repository to deployment path
-git clone https://github.com/Akashgowda-hub/terraform-aws-flask-multitier.git /opt/flaskapp
+echo "Configuring application database..."
 
-# Hand off execution to the application's own deployment script
-cd /opt/flaskapp/01-tier-monolith
+# Create the database if it does not already exist.
+if ! sudo -u postgres psql -tAc \
+    "SELECT 1 FROM pg_database WHERE datname = 'flaskdb'" | grep -q 1; then
+    sudo -u postgres createdb flaskdb
+fi
+
+# Create the application role if needed, then ensure its password is current.
+sudo -u postgres psql -v ON_ERROR_STOP=1 <<'SQL'
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'flaskuser') THEN
+        CREATE ROLE flaskuser LOGIN;
+    END IF;
+END
+$$;
+
+ALTER ROLE flaskuser WITH LOGIN PASSWORD 'flaskpass123';
+GRANT CONNECT, TEMPORARY ON DATABASE flaskdb TO flaskuser;
+SQL
+
+sudo -u postgres psql -v ON_ERROR_STOP=1 -d flaskdb \
+    -c "GRANT ALL ON SCHEMA public TO flaskuser;"
+
+echo "Cloning application repository..."
+
+if [ ! -d "$APP_DIR/.git" ]; then
+    git clone "$APP_REPO" "$APP_DIR"
+else
+    echo "Repository already exists; skipping clone."
+fi
+
+echo "Running application deployment..."
+cd "$APP_DIR/01-tier-monolith"
 bash Scripts/deploy.sh
+
+echo "EC2 initialization completed successfully."
