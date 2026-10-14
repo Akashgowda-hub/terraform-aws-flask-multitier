@@ -1,5 +1,5 @@
 import os
-import psycopg2
+import psycopg
 from flask import Flask, render_template, request, redirect, url_for
 
 app = Flask(__name__)
@@ -10,7 +10,12 @@ DB_USER = os.getenv("DB_USER", "flaskuser")
 DB_PASS = os.getenv("DB_PASS", "flaskpass123")
 
 def get_db_connection():
-    return psycopg2.connect(host=DB_HOST, database=DB_NAME, user=DB_USER, password=DB_PASS)
+    return psycopg.connect(
+        host=DB_HOST,
+        dbname=DB_NAME,
+        user=DB_USER,
+        password=DB_PASS
+    )
 
 @app.route("/", methods=["GET"])
 def home():
