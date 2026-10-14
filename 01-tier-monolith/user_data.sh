@@ -17,4 +17,4 @@ git clone https://github.com/Akashgowda-hub/terraform-aws-flask-multitier.git /o
 
 # Hand off execution to the application's own deployment script
 cd /opt/flaskapp
-bash scripts/deploy.sh
+bash Scripts/deploy.sh
