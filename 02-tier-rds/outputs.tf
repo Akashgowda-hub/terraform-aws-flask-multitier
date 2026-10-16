@@ -22,4 +22,5 @@ output "database_name" {
 output "database_pass" {
   description = "Application database password"
   value       = random_password.db_password.result
+  sensitive = true
 }
