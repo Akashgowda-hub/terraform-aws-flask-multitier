@@ -4,8 +4,31 @@ set -Eeuo pipefail
 exec > >(tee /var/log/flask-3tier-setup.log | logger -t flask-3tier-setup) 2>&1
 
 apt-get update
+
 DEBIAN_FRONTEND=noninteractive apt-get install -y \
-  python3-venv python3-pip awscli ca-certificates
+  python3-venv python3-pip curl unzip ca-certificates snapd
+
+# Install AWS CLI v2 using the official installer.
+curl -fsSL \
+  "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" \
+  -o /tmp/awscliv2.zip
+
+unzip -q /tmp/awscliv2.zip -d /tmp
+
+/tmp/aws/install
+
+rm -rf /tmp/aws /tmp/awscliv2.zip
+
+aws --version
+
+
+if ! snap list amazon-ssm-agent >/dev/null 2>&1; then
+    snap install amazon-ssm-agent --classic
+fi
+
+# Enable and start SSM Agent
+systemctl enable snap.amazon-ssm-agent.amazon-ssm-agent.service
+systemctl restart snap.amazon-ssm-agent.amazon-ssm-agent.service
 
 mkdir -p /opt/flask3tier
 
@@ -24,12 +47,12 @@ DB_USER=${db_username}
 FRONTEND_ORIGIN=${frontend_origin}
 ENVVARS
 
-DB_PASS="$(aws ssm get-parameter \
-  --name '${db_password_parameter_name}' \
-  --with-decryption \
-  --query 'Parameter.Value' \
+DB_PASS="$(aws secretsmanager get-secret-value \
+  --secret-id '${db_password_secret_arn}' \
+  --query 'SecretString' \
   --output text \
   --region ap-south-2)"
+
 
 printf 'DB_PASS=%s\n' "$DB_PASS" >> /etc/flask3tier.env
 unset DB_PASS

@@ -20,16 +20,20 @@ data "aws_ami" "ubuntu" {
 
 data "aws_caller_identity" "current" {}
 
-resource "aws_ssm_parameter" "db_password" {
-  name        = "/${var.project_name}/database/password"
-  description = "Temporary password for the three-tier lab"
-  type        = "SecureString"
-  value       = var.db_password
+resource "aws_secretsmanager_secret" "db_password" {
+  name        = "${var.project_name}/database/password"
+  description = "Database password for the three-tier lab"
 
   tags = {
     Project = var.project_name
   }
 }
+
+resource "aws_secretsmanager_secret_version" "db_password" {
+  secret_id     = aws_secretsmanager_secret.db_password.id
+  secret_string = var.db_password
+}
+
 
 resource "aws_iam_role" "app" {
   name = "${var.project_name}-app-role"
@@ -56,19 +60,24 @@ resource "aws_iam_role_policy" "read_db_password" {
 
   policy = jsonencode({
     Version = "2012-10-17"
+
     Statement = [
       {
-        Effect   = "Allow"
-        Action   = ["ssm:GetParameter"]
-        Resource = aws_ssm_parameter.db_password.arn
-      },
-      {
-        Effect   = "Allow"
-        Action   = ["kms:Decrypt"]
-        Resource = "*"
+        Effect = "Allow"
+
+        Action = [
+          "secretsmanager:GetSecretValue"
+        ]
+
+        Resource = aws_secretsmanager_secret.db_password.arn
       }
     ]
   })
+}
+
+resource "aws_iam_role_policy_attachment" "ssm_managed_instance_core" {
+  role       = aws_iam_role.app.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
 }
 
 resource "aws_iam_instance_profile" "app" {
@@ -92,13 +101,13 @@ resource "aws_launch_template" "app" {
   }
 
   user_data = base64encode(templatefile("${path.module}/user_data.sh.tftpl", {
-    app_py_b64                 = base64encode(file("${path.module}/../backend/app.py"))
-    requirements_b64           = base64encode(file("${path.module}/../backend/requirements.txt"))
-    db_host                    = aws_db_instance.main.address
-    db_name                    = var.db_name
-    db_username                = var.db_username
-    db_password_parameter_name = aws_ssm_parameter.db_password.name
-    frontend_origin            = "http://${aws_s3_bucket_website_configuration.frontend.website_endpoint}"
+    app_py_b64             = base64encode(file("${path.module}/../backend/app.py"))
+    requirements_b64       = base64encode(file("${path.module}/../backend/requirements.txt"))
+    db_host                = aws_db_instance.main.address
+    db_name                = var.db_name
+    db_username            = var.db_username
+    db_password_secret_arn = aws_secretsmanager_secret.db_password.arn
+    frontend_origin        = "http://${aws_s3_bucket_website_configuration.frontend.website_endpoint}"
   }))
 
   tag_specifications {
@@ -139,6 +148,7 @@ resource "aws_lb_target_group" "api" {
     protocol            = "HTTP"
     matcher             = "200"
     interval            = 30
+    timeout             = 5
     healthy_threshold   = 2
     unhealthy_threshold = 3
   }
@@ -173,6 +183,17 @@ resource "aws_autoscaling_group" "app" {
   launch_template {
     id      = aws_launch_template.app.id
     version = aws_launch_template.app.latest_version
+  }
+
+  # Refresh EC2 instances when the launch template changes.
+  instance_refresh {
+    strategy = "Rolling"
+    
+    preferences {
+      min_healthy_percentage = 50
+      max_healthy_percentage = 100
+      instance_warmup        = 600
+    }
   }
 
   tag {
