@@ -1,0 +1,97 @@
+#!/bin/bash
+set -Eeuo pipefail
+
+exec > >(tee /var/log/flask-3tier-setup.log | logger -t flask-3tier-setup) 2>&1
+
+apt-get update
+DEBIAN_FRONTEND=noninteractive apt-get install -y \
+  python3-venv python3-pip awscli ca-certificates
+
+mkdir -p /opt/flask3tier
+
+printf '%s' '${app_py_b64}' | base64 -d > /opt/flask3tier/app.py
+printf '%s' '${requirements_b64}' | base64 -d > /opt/flask3tier/requirements.txt
+
+python3 -m venv /opt/flask3tier/venv
+
+/opt/flask3tier/venv/bin/pip install \
+  -r /opt/flask3tier/requirements.txt
+
+cat > /etc/flask3tier.env <<ENVVARS
+DB_HOST=${db_host}
+DB_NAME=${db_name}
+DB_USER=${db_username}
+FRONTEND_ORIGIN=${frontend_origin}
+ENVVARS
+
+DB_PASS="$(aws ssm get-parameter \
+  --name '${db_password_parameter_name}' \
+  --with-decryption \
+  --query 'Parameter.Value' \
+  --output text \
+  --region ap-south-2)"
+
+printf 'DB_PASS=%s\n' "$DB_PASS" >> /etc/flask3tier.env
+unset DB_PASS
+chmod 600 /etc/flask3tier.env
+
+set -a
+source /etc/flask3tier.env
+set +a
+
+# Wait for PostgreSQL and initialize the table.
+/opt/flask3tier/venv/bin/python - <<'PY'
+import os
+import time
+import psycopg
+
+for attempt in range(30):
+    try:
+        with psycopg.connect(
+            host=os.environ["DB_HOST"],
+            dbname=os.environ["DB_NAME"],
+            user=os.environ["DB_USER"],
+            password=os.environ["DB_PASS"],
+            connect_timeout=5,
+        ) as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS todos (
+                        id BIGSERIAL PRIMARY KEY,
+                        title VARCHAR(200) NOT NULL
+                    )
+                """)
+        print("Database connection and table initialization succeeded.")
+        break
+    except Exception:
+        if attempt == 29:
+            raise
+        time.sleep(10)
+PY
+
+useradd --system --home-dir /opt/flask3tier \
+  --shell /usr/sbin/nologin flaskapp || true
+
+chown -R flaskapp:flaskapp /opt/flask3tier
+
+cat > /etc/systemd/system/flask3tier.service <<'SERVICE'
+[Unit]
+Description=Flask Three-Tier API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=flaskapp
+Group=flaskapp
+WorkingDirectory=/opt/flask3tier
+EnvironmentFile=/etc/flask3tier.env
+ExecStart=/opt/flask3tier/venv/bin/gunicorn --workers 2 --bind 0.0.0.0:8000 app:app
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+SERVICE
+
+systemctl daemon-reload
+systemctl enable --now flask3tier

@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DevOps Todo App</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <main class="container">
+        <h1>My Todo List</h1>
+        <p class="subtitle">AWS 3-Tier Application</p>
+
+        <form id="todo-form">
+            <input
+                type="text"
+                id="todo-title"
+                placeholder="What do you need to do?"
+                required
+                maxlength="200"
+            >
+            <button type="submit">Add Todo</button>
+        </form>
+
+        <p id="status" role="status">Connecting to the application...</p>
+        <ul id="todo-list"></ul>
+    </main>
+
+    <script src="app.js"></script>
+</body>
+</html>
